@@ -1,0 +1,119 @@
+#! /usr/bin/env python
+
+import httplib
+# to compress the data
+import zlib
+import os
+# to implement multiple client request
+from threading import Thread
+import sys
+# import sqlite3 to implement database for caching
+import sqlite3
+# import BaseHTTPServer for implementing httpserver
+from BaseHTTPServer import HTTPServer,BaseHTTPRequestHandler
+
+
+def main():
+	# Check valid command line inputs
+	if ((len(sys.argv)!=5) or sys.argv[1] != "-p" or (sys.argv[3] != '-o')):
+		sys.exit(0)
+	global origin_server
+	Port = int(sys.argv[2])
+	if sys.argv[3] == "-o":
+		origin_server = str(sys.argv[4])
+	else:
+		print  "Not the correct origin server address ...Try again!!"
+		sys.exit(0)
+	# call the main class to perform httpserver function
+	h = HTTPServer(('',Port),RequestHandler)
+	try:
+        # run the server to receive client request
+		h.serve_forever()
+	except:
+		h.server_close()
+
+#Intiates a database connection
+def establish_db_connection():
+	connection=sqlite3.connect('content.db',timeout=5,isolation_level=None)
+	print "DB connection established successfully"
+	return connection
+
+#Initiate a httpclient request to the ORIGIN_SERVER
+def get_file_from_origin(filepath):
+	db = httplib.HTTPConnection(origin_server+":"+str(8080))
+	db.request("GET",filepath)
+	r1=db.getresponse()
+	return r1
+
+#Cache Implementation to save new link and update no. of hits by 1
+def insert_cache(db,server_response,filepath):
+	print "Insert link "
+	db.execute("INSERT INTO Cache(Path,Content,Hits) VALUES(?,?,?)",(filepath,server_response,1))
+	db.commit()
+
+
+class RequestHandler(BaseHTTPRequestHandler):
+
+	def http_server_on_thread(s,*args):
+        # call method to establish database connection
+		db = establish_db_connection()
+		d = db.cursor()
+        # create table to save link for caching
+		d.execute('''CREATE TABLE IF NOT EXISTS Cache(Path TEXT,Content BLOB,Hits INT);''')
+        # fetch the link from cache
+		Path = d.fetchone()
+        # if link not present in cache
+		if Path == '/':
+			#fetch link from origin
+			server_response =  get_file_from_origin.read()
+			#check cache table size
+			dbsize= os.stat('content.db')
+			db_size = dbsize.st_size
+			# check whether new entry doesnt exceed cache table size, if not insert the link into the cache
+
+			if (db_size < (db_size + len(server_response)) < 1048576):
+                # call method to insert new link in cache
+				insert_cache(db, server_response, s.path)
+			else:
+				#Delete the entry with the minimum number of hits
+				d.execute("DELETE FROM Cache WHERE Path = (SELECT Path FROM Cache WHERE hits = (SELECT MIN(hits) FROM Cache))")
+                #insert the latest obtained link into the cache
+				insert_cache(db, server_response, s.path)
+		else:
+			#link present in cache,fetch link from cache
+			server_responseobj = d.execute("SELECT Content FROM Cache WHERE Path =:Path",{"Path":s.path})
+			server_response = d.fetchone()
+			#Increment the no of Hits for current link
+			hitsobj = d.execute("SELECT Hits FROM Cache WHERE Path =:Path",{"Path":s.path})
+			Hits = d.fetchone()
+			Hits = Hits[0]
+			Hits = Hits + 1
+			#Send the decompressed link as response data
+			server_response = zlib.decompress(server_response[0])
+			# Update the no of hits in the database
+			d.execute("UPDATE Cache SET Hits =:Hits WHERE Path=:Path",{"Hits":Hits,"Path":s.path})
+#--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+		#Save the changes on database
+		db.commit()
+		#Close the connection after saving the changes
+		db.close()
+		#Send response to the GET request
+		s.send_response(200)
+        # send http header content
+		s.send_header("Content-type","text/html")
+		s.end_headers()
+		s.wfile.write(server_response)
+
+	def do_GET(s):
+		#Initiate a thread and run the method which serves requests on these threads
+		try:
+			a = Thread(target= s.http_server_on_thread())
+			a.start()
+		except IOError:
+			s.send_error(404,'File Not Found: %' %s.path)
+
+
+if __name__ == '__main__':
+	main()
+
+

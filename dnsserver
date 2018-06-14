@@ -1,0 +1,173 @@
+#! /usr/bin/env python
+
+#import the required packages
+import urllib
+import math
+import thread
+import sys
+import socket
+from struct import pack,unpack
+
+# method to handle argument passing
+def args(argv):
+	#check if 5 arguments are passed
+    if len(sys.argv) != 5:
+        print "Illegal number of arguments"
+        sys.exit(0)
+	#check if 1st argument is '-p'
+    if sys.argv[1] != "-p":
+        print "Not correct format of arguments"
+        sys.exit(0)
+    else:
+        port = int(sys.argv[2])
+	#check if the 3rd argument is '-n' and 4th argument is the origin server
+    if sys.argv[3] != "-n" and sys.argv[4] != "cs5700cdn.example.com":
+        print "Please provide the server name"
+        sys.exit(0)
+    else:
+        server_name = sys.argv[4]
+
+    return port, server_name
+
+
+def main():
+
+    #calling and getting values of port number and server
+    (port,name_of_server)=args(sys.argv)
+
+    #Creating socket to get the source IP address
+    sock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
+    sock.connect(("google.com",80))
+    src_ip = sock.getsockname()[0]
+    sock.close()
+
+    #Creating socket
+    sock1 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    #Binding on the source IP and port number passed
+    sock1.bind((src_ip, port))
+    req_array = {}
+
+    #Infinite loop
+    while True:
+        data = sock1.recvfrom(653555)
+        thread.start_new_thread(serve_each_request, (sock1, data, req_array, name_of_server))
+    sock1.close()
+
+#Get the latitute and longitude of the ip address
+def getlatitude_longitude(source_ip):
+	response = urllib.urlopen(url = 'http://api.ipinfodb.com/v3/ip-city/?key=54cc27ff671310cabbe4bdb1a21e638a81ffcd59c1f7d5196d98407b1f88fe8a&ip='+str(source_ip))
+	loc_info = response.read().split(';')
+	longitude = float(loc_info[9])
+	latitude = float(loc_info[8])
+	return latitude,longitude
+
+# method to calculate the distance between the co-ordinates
+def cal_distance(latitude1,longitude1,lat_long):
+        latitude2 = lat_long[0]
+        longitude2 = lat_long[1]
+		# difference between latitudes
+        diff_in_lat = math.radians(latitude2-latitude1)
+		# difference between longitudes
+        diff_in_lon = math.radians(longitude2-longitude1)
+        var_a = math.sin(diff_in_lat/2) * math.sin(diff_in_lat/2) + math.cos(math.radians(latitude1)) * math.cos(math.radians(latitude2)) * math.sin(diff_in_lon/2) * math.sin(diff_in_lon/2)
+        var_c = 2 * math.atan2(math.sqrt(var_a), math.sqrt(1-var_a))
+        distance = 6371 * var_c
+        return distance
+
+# method to locate the and save the information of replica servers
+def replica_servers(latitude1,longitude1,client_request_dict,request_ip):
+	replica_servers_locations = {
+				'54.85.32.37':[39.0437,-77.4875],
+				'54.193.70.31':[37.7749,-122.419],
+				'52.38.67.246':[45.5234,-122.676],
+				'52.51.20.200':[53.344,-6.26719],
+				'52.29.65.165':[50.1155,8.68417],
+				'52.196.70.227':[35.6895,139.692],
+				'54.169.117.213':[1.28967,103.85],
+				'52.63.206.143':[-33.8679,151.207],
+				'54.233.185.94':[-23.5475,-46.6361]}
+
+	for replica in replica_servers_locations:
+		replica_servers_locations[replica] = cal_distance(latitude1, longitude1, replica_servers_locations[replica])
+	nearest_ip = min(replica_servers_locations, key=replica_servers_locations.get)
+	#save the best replica server in an array
+	client_request_dict[request_ip] = nearest_ip
+	return nearest_ip,client_request_dict
+
+
+#method to serve each request revieved
+def serve_each_request(sock,data,req_array,name_of_server):
+
+		send_info = data[1]
+		ip = send_info[0]
+		if ip in req_array:
+			nearest_ip = req_array[ip]
+		else:
+			latitude1,longitude1 = getlatitude_longitude(ip)
+
+			nearest_ip,client_request_dict = replica_servers(latitude1, longitude1, req_array, ip)
+		#unpack the data received
+		data_unpack(data, sock, send_info, nearest_ip, name_of_server)
+
+
+
+# method to unpack the DNS packet
+def data_unpack(data, sock, info, ip, name_of_server):
+	new_data = data[0].strip()
+        unpacked_data = unpack('!6H',new_data[:12])
+	no_questions = unpacked_data[2]
+    #strip the header
+	header1 = new_data[0:2]
+	header2 = pack('!4H',no_questions,1,0,0)
+    #Construct the header
+	header = header1 + '\x81\x80' + header2
+
+        #Striping header
+        data_remaining = new_data[12:]
+        #Unpack the data
+        length = unpack('!B', data_remaining[0])
+
+	beginning_of_octet = 1
+
+	name = ""
+        #Counter to keep a count of the number of labels
+        label_count = 0
+
+        while (length[0] != 0):
+
+		end_of_octet = beginning_of_octet + length[0]
+        #Unpack data according to the length
+		unpack_octet = str(length[0]) + 's'
+
+		if name:
+			name = name + '.' + unpack(unpack_octet, data_remaining[beginning_of_octet:end_of_octet])[0]
+		else:
+			name = unpack(unpack_octet, data_remaining[beginning_of_octet:end_of_octet])[0]
+
+        #Move the begin pointer to the next character of the end pointer
+		beginning_of_octet = end_of_octet + 1
+		length_of_unpacked = data_remaining[end_of_octet]
+		length = unpack('!B', length_of_unpacked)
+    #Move the end pointer by 5 ahead, to indicate the end of domain names.
+	end_of_octet = end_of_octet + 5
+
+	if name_of_server != name:
+		sys.exit(0)
+	else:
+        #Call form_dns_answer method to build the final packet.
+		dns_packet = construct_dns_response(sock, header, end_of_octet, new_data, info, ip)
+	return
+
+
+
+
+#Form the dns answer and the complete dns packet
+def construct_dns_response(sock, header, end_octet, new_data, info, ip):
+	dns_response = pack('!HHHLH4s', 0xC00C, 0x0001, 0x0001, 60, 4, socket.inet_aton(ip))
+	question = new_data[12:12+end_octet]
+    #Construct the DNS packet
+	dns_packet = header + question + dns_response
+	sock.sendto(dns_packet,info)
+
+#call the main function
+main()

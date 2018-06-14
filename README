@@ -1,0 +1,53 @@
+CONTENTS OF THIS FILE
+---------------------
+1) Introduction
+2) High-Level Approach
+3) Challenges Faced
+4) Performance Enhancing Techniques
+5) Future Enhancements
+6) Deliverables
+
+Introduction
+----------------- 
+The goal of this project is to implement a Content Distribution Network. We have done this by implementing DNSServer and HTTPServer at the Amazon AWS EC2 Servers. The DNSServer should send the IP address of the desired replica server. The HTTPServer should fetch the content from its cache and return it to the client. If the content is not in its cache, then it contacts the replica server and delivers it to the client who has requested it. Also, it caches this content in its database.
+When a content is requested by a client, for the content to be delivered as fast as possible, it is important to distribute/spread the content and implement CDN to retrieve it in least time possible. Hence, there are a number of replica servers that contain the distributed content. Our aim is to find the best possible replica server for the requested client and send the content from there.
+
+High-Level Approach
+----------------------------
+1. DNS Server
+Understand the format for a DNS A record query, and implement a code that parses it and get the domain name that client’s request. Send a well-constructed DNS response which includes the DNS answer and build a DNS packet that sends a specific IP address.
+To configure a DNS server, we were provided with three possible choices to map request to best replica server: Active Measurements, Geolocation, and Passive Measurements
+We decided to map the best replica server using GeoLocation method. We chose this method because we thought that the nearest replica would give us the best performance.
+In this, we have used ‘api.ipinfodb.com’ to get the latitude and longitude of the location based on the IP address. Using this website we get the longitude and latitude co-ordinate of the IP address of the client requesting. From the latitudes and longitudes of the replica servers and the client, we calculate the spherical distance from the converted spherical coordinates and calculate the distance between them. The calculated distances from each replica server is stored as the value and the replica server IP as a key. 
+We also maintain another array of client IP's and the replica to which they were mapped to.This enhances the speed if the same client requests again as the retrieval from array takes constant time. We then build the DNS answer by incrementing the answer count by one and also including the best replica server IP address in the answer section and send the DNS response to the client.
+2. HTTP Server
+We have used python built-in HTTPServer class to handle requests from the client and send response of the origin server to the client. These functionalities are implemented using httplib as well. 
+We implemented the database using SQLlite and compression technique to cache the content in the HTTPServer. Also, compressing is better for increasing the amount of content the HTTPServer can save in the given constraint of 10MB. This caching reduces the latency and the time to serve the client request.
+We have used the concept of multi-threading in our HTTPServer. This means it can serve multiple requests at the same time. The cache is stored in a database which keeps track of the number of hits per page. When the cache is full and new content needs to be stored, some contents are deleted by calculating least number of hits. 
+Challenges
+---------------
+1)	We found it challenging to get the GeoLocation of the client IP address.
+2)	Caching using database in the HTTPServer was quite challenging as it was a new concept for us.
+3)	Understand the DNS query format, pack and unpack the DNS query. Parse a DNS request and send a DNS answer with a correct IP address. This we studied from the Wireshark traces.
+4)	Understand how the python built-in Library HTTPServer works to get request from client and send the response from the server to client.
+5)	We found it challenging to write python and bash codes for deploying, running and stopping the CDN.
+
+Performance Enhancing Techniques
+------------------------------------------------
+1)	Caching the client requesting DNS to its nearest replica server at the DNS server.
+2)	Using multi-threading concept in the HTTPServer to handle multiple requests at the same time.
+
+Future Enhancements
+-----------------------------
+1)	We can use the RTT technique using scamper methods to get the best replying replica server. This can be used with already existing GeoLocation technique for more optimization.
+
+Deliverables
+-----------------
+1)	Readme
+2)	dnsserver
+3)	httpserver
+4)	deployCDN
+5)	runCDN
+6)	stopCDN
+7)	makefile
+

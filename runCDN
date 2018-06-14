@@ -1,0 +1,49 @@
+#! /usr/bin/env python
+import sys
+import subprocess
+
+charP = sys.argv[1]
+portNo = int(sys.argv[2])
+charO = sys.argv[3]
+origin = str(sys.argv[4])
+charN = sys.argv[5]
+charU = sys.argv[7]
+username =sys.argv[8]
+charI = sys.argv[9]
+keyfile = sys.argv[10]
+dns_server = "cs5700cdnproject.ccs.neu.edu"
+name = 'cs5700cdn.example.com'
+
+# list of all the amazon servers
+replica_servers=["ec2-54-85-32-37.compute-1.amazonaws.com","ec2-54-193-70-31.us-west-1.compute.amazonaws.com","ec2-52-38-67-246.us-west-2.compute.amazonaws.com",
+"ec2-52-51-20-200.eu-west-1.compute.amazonaws.com","ec2-52-29-65-165.eu-central-1.compute.amazonaws.com","ec2-52-196-70-227.ap-northeast-1.compute.amazonaws.com",
+"ec2-54-169-117-213.ap-southeast-1.compute.amazonaws.com","ec2-52-63-206-143.ap-southeast-2.compute.amazonaws.com","ec2-54-233-185-94.sa-east-1.compute.amazonaws.com"]
+
+# check for valid arguements are passed on command line
+if charP != "-p" and charO != "-o" and charN != "-n" and charU != "-u" and charI != "-i" :
+    print("Invalid arguments passed")
+    sys.exit(0)
+
+# check for correct port number
+if portNo not in range(39999,65536):
+    print("Please specify a valid port number")
+    sys.exit(0)
+
+# check for correct origin server
+if origin !='ec2-54-88-98-7.compute-1.amazonaws.com':
+    print("Invalid origin server passed")
+    sys.exit(0)
+
+# check for correct origin name
+if sys.argv[6] != 'cs5700cdn.example.com':
+    print("Invalid origin name")
+    sys.exit(0)
+
+# for loop for each replica server to run http and dns server 
+for each_replica in replica_servers:
+    run = subprocess.check_output("ssh -i "+keyfile+" "+username+"@"+each_replica+" '"+"DISPLAY=:0 ./httpserver -p "+str(portNo)+" -o "+origin+"< /dev/null > std.out 2> std.err &"+"'",shell=True)
+    subprocess.call(run, shell=True)
+
+dns_run = subprocess.check_output("ssh -i "+keyfile+" "+username+"@"+dns_server+" '"+"DISPLAY=:0 ./dnsserver -p "+str(portNo)+" -n "+name+"< /dev/null > std.out2> std.err &"+"'",shell=True)
+subprocess.call(dns_run, shell=True)
+
